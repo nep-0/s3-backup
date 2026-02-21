@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S3 Backup Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-900 font-sans" x-data="app()" x-init="init()">
+    <div class="min-h-screen flex">
+        <!-- Sidebar -->
+        <aside class="w-64 bg-slate-900 text-white flex-shrink-0 hidden md:flex flex-col">
+            <div class="p-6 flex items-center gap-3">
+                <i data-lucide="shield-check" class="text-blue-400"></i>
+                <h1 class="text-xl font-bold tracking-tight">S3 Backup</h1>
+            </div>
+            <nav class="flex-1 px-4 space-y-1">
+                <template x-for="item in menu">
+                    <button 
+                        @click="view = item.id"
+                        :class="view === item.id ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'"
+                        class="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm font-medium"
+                    >
+                        <i :data-lucide="item.icon" class="w-4 h-4"></i>
+                        <span x-text="item.label"></span>
+                    </button>
+                </template>
+            </nav>
+            <div class="p-4 border-t border-slate-800">
+                <div class="flex items-center gap-3 px-3 py-2">
+                    <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                    <span class="text-xs text-slate-400 font-medium">System Online</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
+            <!-- Header -->
+            <header class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-8">
+                <h2 class="text-lg font-semibold text-gray-800" x-text="menu.find(m => m.id === view).label"></h2>
+                <div class="flex items-center gap-4">
+                    <button @click="refreshAll()" class="p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors" title="Refresh All">
+                        <i data-lucide="refresh-cw" class="w-5 h-5" :class="loading ? 'animate-spin' : ''"></i>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Content Area -->
+            <div class="flex-1 overflow-y-auto p-8">
+                <!-- Dashboard / Status -->
+                <div x-show="view === 'status'" x-cloak class="space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                            <div class="flex items-center justify-between mb-4">
+                                <span class="text-sm font-medium text-gray-500 uppercase tracking-wider">Endpoints</span>
+                                <i data-lucide="server" class="w-5 h-5 text-blue-500"></i>
+                            </div>
+                            <div class="text-3xl font-bold" x-text="status.endpoints?.length || 0">0</div>
+                        </div>
+                        <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                            <div class="flex items-center justify-between mb-4">
+                                <span class="text-sm font-medium text-gray-500 uppercase tracking-wider">Watch Items</span>
+                                <i data-lucide="eye" class="w-5 h-5 text-purple-500"></i>
+                            </div>
+                            <div class="text-3xl font-bold" x-text="status.watch_items?.length || 0">0</div>
+                        </div>
+                        <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                            <div class="flex items-center justify-between mb-4">
+                                <span class="text-sm font-medium text-gray-500 uppercase tracking-wider">Total Backups</span>
+                                <i data-lucide="database" class="w-5 h-5 text-green-500"></i>
+                            </div>
+                            <div class="text-3xl font-bold" x-text="status.backups?.length || 0">0</div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                        <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                            <h3 class="font-semibold">System Status (Raw)</h3>
+                        </div>
+                        <div class="p-6">
+                            <pre class="bg-gray-900 text-green-400 p-4 rounded-lg text-xs overflow-x-auto" x-text="JSON.stringify(status, null, 2)"></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Endpoints -->
+                <div x-show="view === 'endpoints'" x-cloak class="space-y-6">
+                    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                        <div class="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                            <h3 class="font-semibold">Add New Endpoint</h3>
+                        </div>
+                        <div class="p-6">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <input x-model="newEndpoint.name" placeholder="Name (e.g. AWS S3)" class="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                                <input x-model="newEndpoint.endpoint" placeholder="Endpoint (host:port)" class="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                                <input x-model="newEndpoint.access_key" placeholder="Access Key" class="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                                <input x-model="newEndpoint.secret_key" type="password" placeholder="Secret Key" class="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                                <input x-model="newEndpoint.bucket" placeholder="Bucket Name" class="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                                <input x-model="newEndpoint.prefix" placeholder="Prefix (optional)" class="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                                <input x-model="newEndpoint.region" placeholder="Region (e.g. us-east-1)" class="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                                <div class="flex items-center gap-4 px-2">
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" x-model="newEndpoint.use_ssl" class="rounded text-blue-600">
+                                        <span class="text-sm">SSL</span>
+                                    </label>
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" x-model="newEndpoint.path_style" class="rounded text-blue-600">
+                                        <span class="text-sm">Path Style</span>
+                                    </label>
+                                </div>
+                                <button @click="createEndpoint()" class="md:col-span-3 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-lg transition-colors flex items-center justify-center gap-2">
+                                    <i data-lucide="plus" class="w-4 h-4"></i> Add Endpoint
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-gray-50 border-b border-gray-200">
+                                    <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">ID</th>
+                                    <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
+                                    <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Endpoint</th>
+                                    <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Bucket</th>
+                                    <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                                <template x-for="ep in endpoints" :key="ep.id">
+                                    <tr class="hover:bg-gray-50 transition-colors">
+                                        <td class="px-6 py-4 text-sm text-gray-500" x-text="ep.id"></td>
+                                        <td class="px-6 py-4 text-sm font-medium" x-text="ep.name"></td>
+                                        <td class="px-6 py-4 text-sm text-gray-600" x-text="ep.endpoint"></td>
+                                        <td class="px-6 py-4 text-sm text-gray-600" x-text="ep.bucket"></td>
+                                        <td class="px-6 py-4 text-right">
+                                            <button @click="deleteEndpoint(ep.id)" class="text-red-600 hover:text-red-800 p-1">
+                                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Watch Items -->
+                <div x-show="view === 'watch'" x-cloak class="space-y-6">
+                    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                        <div class="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                            <h3 class="font-semibold">Add New Watch Item</h3>
+                        </div>
+                        <div class="p-6">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <input x-model="newWatch.path" placeholder="Local Path to watch" class="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                                <input x-model="newWatch.target_path" placeholder="Target S3 Path" class="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                                <input x-model="newWatch.excludes" placeholder="Excludes (comma separated)" class="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                                <select x-model="newWatch.endpoint_id" class="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                                    <option value="">Select Endpoint</option>
+                                    <template x-for="ep in endpoints" :key="ep.id">
+                                        <option :value="ep.id" x-text="`${ep.name} (${ep.endpoint})`"></option>
+                                    </template>
+                                </select>
+                                <div class="flex items-center gap-4 px-2">
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" x-model="newWatch.enabled" class="rounded text-blue-600">
+                                        <span class="text-sm">Enabled</span>
+                                    </label>
+                                </div>
+                                <button @click="createWatch()" class="md:col-span-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-lg transition-colors flex items-center justify-center gap-2">
+                                    <i data-lucide="plus" class="w-4 h-4"></i> Add Watch
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-gray-50 border-b border-gray-200">
+                                    <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">ID</th>
+                                    <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Path</th>
+                                    <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Target</th>
+                                    <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                                <template x-for="w in watchItems" :key="w.id">
+                                    <tr class="hover:bg-gray-50 transition-colors">
+                                        <td class="px-6 py-4 text-sm text-gray-500" x-text="w.id"></td>
+                                        <td class="px-6 py-4 text-sm font-medium" x-text="w.path"></td>
+                                        <td class="px-6 py-4 text-sm text-gray-600" x-text="w.target_path"></td>
+                                        <td class="px-6 py-4 text-sm">
+                                            <span :class="w.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'" class="px-2 py-1 rounded-full text-xs font-bold" x-text="w.enabled ? 'Active' : 'Disabled'"></span>
+                                        </td>
+                                        <td class="px-6 py-4 text-right space-x-2">
+                                            <button @click="triggerBackup(w.id)" class="text-blue-600 hover:text-blue-800 p-1" title="Trigger Backup">
+                                                <i data-lucide="play" class="w-4 h-4"></i>
+                                            </button>
+                                            <button @click="deleteWatch(w.id)" class="text-red-600 hover:text-red-800 p-1" title="Delete">
+                                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Backups -->
+                <div x-show="view === 'backups'" x-cloak class="space-y-6">
+                    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-gray-50 border-b border-gray-200">
+                                    <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">ID</th>
+                                    <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Watch ID</th>
+                                    <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Files</th>
+                                    <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Size</th>
+                                    <th class="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                                <template x-for="b in backups" :key="b.id">
+                                    <tr class="hover:bg-gray-50 transition-colors">
+                                        <td class="px-6 py-4 text-sm text-gray-500" x-text="b.id"></td>
+                                        <td class="px-6 py-4 text-sm font-medium" x-text="b.watch_item_id"></td>
+                                        <td class="px-6 py-4 text-sm">
+                                            <span :class="{
+                                                'bg-green-100 text-green-700': b.status === 'completed',
+                                                'bg-blue-100 text-blue-700': b.status === 'running',
+                                                'bg-red-100 text-red-700': b.status === 'failed'
+                                            }" class="px-2 py-1 rounded-full text-xs font-bold" x-text="b.status"></span>
+                                        </td>
+                                        <td class="px-6 py-4 text-sm text-gray-600" x-text="b.total_files"></td>
+                                        <td class="px-6 py-4 text-sm text-gray-600" x-text="formatBytes(b.total_bytes)"></td>
+                                        <td class="px-6 py-4 text-right">
+                                            <button @click="loadBackupDetail(b.id)" class="text-blue-600 hover:text-blue-800 p-1">
+                                                <i data-lucide="info" class="w-4 h-4"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Recovery -->
+                <div x-show="view === 'recovery'" x-cloak class="space-y-6">
+                    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden max-w-2xl">
+                        <div class="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                            <h3 class="font-semibold">Start Recovery</h3>
+                        </div>
+                        <div class="p-6 space-y-4">
+                            <p class="text-sm text-gray-600">Enter a Backup ID to restore files from S3 to the original local path.</p>
+                            <div class="flex gap-4">
+                                <input x-model="recoveryId" placeholder="Backup ID" class="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                                <button @click="startRecovery()" class="bg-green-600 hover:bg-green-700 text-white font-medium px-6 py-2 rounded-lg transition-colors flex items-center gap-2">
+                                    <i data-lucide="rotate-ccw" class="w-4 h-4"></i> Recover
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="fixed bottom-4 right-4 space-y-2 z-50">
+        <template x-for="toast in toasts" :key="toast.id">
+            <div :class="toast.type === 'error' ? 'bg-red-600' : 'bg-gray-900'" class="text-white px-6 py-3 rounded-lg shadow-xl flex items-center gap-3 animate-slide-in">
+                <i :data-lucide="toast.type === 'error' ? 'alert-circle' : 'check-circle'" class="w-5 h-5"></i>
+                <span x-text="toast.message"></span>
+            </div>
+        </template>
+    </div>
+
+    <script>
+        function app() {
+            return {
+                view: 'status',
+                loading: false,
+                status: {},
+                endpoints: [],
+                watchItems: [],
+                backups: [],
+                toasts: [],
+                recoveryId: '',
+                menu: [
+                    { id: 'status', label: 'Dashboard', icon: 'layout-dashboard' },
+                    { id: 'endpoints', label: 'Endpoints', icon: 'server' },
+                    { id: 'watch', label: 'Watch Items', icon: 'eye' },
+                    { id: 'backups', label: 'Backups', icon: 'database' },
+                    { id: 'recovery', label: 'Recovery', icon: 'rotate-ccw' },
+                ],
+                newEndpoint: {
+                    name: '', endpoint: '', access_key: '', secret_key: '',
+                    bucket: '', prefix: '', region: '', use_ssl: false, path_style: true
+                },
+                newWatch: {
+                    path: '', target_path: '', endpoint_id: '', excludes: '', enabled: true
+                },
+
+                async init() {
+                    await this.refreshAll();
+                    lucide.createIcons();
+                    // Re-run lucide icons when view changes
+                    this.$watch('view', () => {
+                        this.$nextTick(() => lucide.createIcons());
+                    });
+                },
+
+                async refreshAll() {
+                    this.loading = true;
+                    try {
+                        await Promise.all([
+                            this.loadStatus(),
+                            this.loadEndpoints(),
+                            this.loadWatch(),
+                            this.loadBackups()
+                        ]);
+                    } finally {
+                        this.loading = false;
+                        this.$nextTick(() => lucide.createIcons());
+                    }
+                },
+
+                async api(path, options = {}) {
+                    const res = await fetch(path, options);
+                    if (!res.ok) {
+                        const text = await res.text();
+                        this.toast(text || 'API Error', 'error');
+                        throw new Error(text);
+                    }
+                    return res.json();
+                },
+
+                toast(message, type = 'success') {
+                    const id = Date.now();
+                    this.toasts.push({ id, message, type });
+                    setTimeout(() => {
+                        this.toasts = this.toasts.filter(t => t.id !== id);
+                    }, 3000);
+                    this.$nextTick(() => lucide.createIcons());
+                },
+
+                async loadStatus() { this.status = await this.api('/api/status') || {}; },
+                async loadEndpoints() { this.endpoints = await this.api('/api/endpoints') || []; },
+                async loadWatch() { this.watchItems = await this.api('/api/watch') || []; },
+                async loadBackups() { this.backups = await this.api('/api/backups/list') || []; },
+
+                async createEndpoint() {
+                    await this.api('/api/endpoints', { 
+                        method: 'POST', 
+                        body: JSON.stringify(this.newEndpoint) 
+                    });
+                    this.toast('Endpoint added');
+                    this.newEndpoint = { name: '', endpoint: '', access_key: '', secret_key: '', bucket: '', prefix: '', region: '', use_ssl: false, path_style: true };
+                    await this.loadEndpoints();
+                },
+
+                async deleteEndpoint(id) {
+                    if (!confirm('Are you sure?')) return;
+                    await this.api(`/api/endpoints?id=${id}`, { method: 'DELETE' });
+                    this.toast('Endpoint deleted');
+                    await this.loadEndpoints();
+                },
+
+                async createWatch() {
+                    const payload = {
+                        ...this.newWatch,
+                        endpoint_id: parseInt(this.newWatch.endpoint_id, 10),
+                        excludes: this.newWatch.excludes.split(',').map(v => v.trim()).filter(Boolean)
+                    };
+                    await this.api('/api/watch', { method: 'POST', body: JSON.stringify(payload) });
+                    this.toast('Watch item added');
+                    this.newWatch = { path: '', target_path: '', endpoint_id: '', excludes: '', enabled: true };
+                    await this.loadWatch();
+                },
+
+                async deleteWatch(id) {
+                    if (!confirm('Are you sure?')) return;
+                    await this.api(`/api/watch?id=${id}`, { method: 'DELETE' });
+                    this.toast('Watch item deleted');
+                    await this.loadWatch();
+                },
+
+                async triggerBackup(id) {
+                    await this.api(`/api/backup/trigger?watch_id=${id}`, { method: 'POST' });
+                    this.toast('Backup triggered');
+                    await this.loadBackups();
+                },
+
+                async loadBackupDetail(id) {
+                    const items = await this.api(`/api/backups/detail?id=${id}`);
+                    alert(JSON.stringify(items, null, 2));
+                },
+
+                async startRecovery() {
+                    if (!this.recoveryId) return;
+                    await this.api(`/api/recovery/start?backup_id=${this.recoveryId}`, { method: 'POST' });
+                    this.toast('Recovery started');
+                    this.recoveryId = '';
+                },
+
+                formatBytes(bytes) {
+                    if (bytes === 0) return '0 B';
+                    const k = 1024;
+                    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+                }
+            }
+        }
+    </script>
+    <style>
+        @keyframes slide-in {
+            from { transform: translateY(100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .animate-slide-in {
+            animation: slide-in 0.3s ease-out forwards;
+        }
+    </style>
+</body>
+</html>

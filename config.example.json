@@ -1,0 +1,20 @@
+{
+  "app": {
+    "data_dir": "./data",
+    "db_path": "./data/s3-backup.sqlite",
+    "dashboard_bind": "127.0.0.1:8080"
+  },
+  "retention": {
+    "keep_last": 10,
+    "max_age_days": 30
+  },
+  "recovery": {
+    "restore_root": "./restore",
+    "overwrite": false
+  },
+  "s3_defaults": {
+    "region": "us-east-1",
+    "use_ssl": false,
+    "path_style": true
+  }
+}

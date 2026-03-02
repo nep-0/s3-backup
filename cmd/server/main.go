@@ -13,14 +13,13 @@ import (
 	"time"
 
 	"s3-backup/internal/api"
+	"s3-backup/internal/autostart"
 	"s3-backup/internal/backup"
 	"s3-backup/internal/config"
 	"s3-backup/internal/db"
 	"s3-backup/internal/storage"
 	"s3-backup/internal/watch"
 	"s3-backup/web"
-
-	"github.com/emersion/go-autostart"
 )
 
 const defaultConfigJSON = `{
@@ -212,13 +211,7 @@ func installSelf(configPath string) error {
 		return err
 	}
 
-	app := &autostart.App{
-		Name:        "s3-backup",
-		DisplayName: "S3 Backup Service",
-		Exec:        []string{dstPath, "--config", configPath},
-	}
-
-	if err := app.Enable(); err != nil {
+	if err := autostart.Enable("s3-backup", "S3 Backup Service", []string{dstPath, "--config", configPath}); err != nil {
 		return err
 	}
 
@@ -232,13 +225,7 @@ func uninstallSelf() error {
 		return err
 	}
 
-	app := &autostart.App{
-		Name:        "s3-backup",
-		DisplayName: "S3 Backup Service",
-		Exec:        []string{dstPath},
-	}
-
-	if err := app.Disable(); err != nil {
+	if err := autostart.Disable("s3-backup", "S3 Backup Service", []string{dstPath}); err != nil {
 		return err
 	}
 

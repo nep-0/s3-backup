@@ -26,7 +26,7 @@ Uninstall and disable autostart:
 ./s3-backup --uninstall
 ```
 
-Install/uninstall exits after completion without starting the server. It registers autostart using `github.com/emersion/go-autostart`.
+Install/uninstall exits after completion without starting the server. Autostart uses `github.com/emersion/go-autostart` (Windows requires CGO for autostart).
 
 ```json
 {

@@ -40,6 +40,20 @@ type Backup struct {
 	Error       string `json:"error"`
 }
 
+type BackupSummary struct {
+	ID          int64  `json:"id"`
+	WatchItemID int64  `json:"watch_item_id"`
+	EndpointID  int64  `json:"endpoint_id"`
+	WatchPath   string `json:"watch_path"`
+	TargetPath  string `json:"target_path"`
+	StartedAt   string `json:"started_at"`
+	CompletedAt string `json:"completed_at"`
+	Status      string `json:"status"`
+	TotalFiles  int64  `json:"total_files"`
+	TotalBytes  int64  `json:"total_bytes"`
+	Error       string `json:"error"`
+}
+
 type BackupFile struct {
 	ID        int64  `json:"id"`
 	BackupID  int64  `json:"backup_id"`
@@ -215,6 +229,36 @@ func (d *DB) ListBackups(ctx context.Context, limit int) ([]Backup, error) {
 		var item Backup
 		if err := rows.Scan(&item.ID, &item.WatchItemID, &item.EndpointID, &item.StartedAt, &item.CompletedAt, &item.Status, &item.TotalFiles, &item.TotalBytes, &item.Error); err != nil {
 			return nil, fmt.Errorf("scan backup: %w", err)
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (d *DB) ListBackupsWithWatch(ctx context.Context, limit int) ([]BackupSummary, error) {
+	query := `
+		SELECT b.id, b.watch_item_id, b.endpoint_id, w.path, w.target_path,
+			b.started_at, b.completed_at, b.status, b.total_files, b.total_bytes, b.error
+		FROM backups b
+		JOIN watch_items w ON w.id = b.watch_item_id
+		ORDER BY b.id DESC`
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d", limit)
+	}
+	rows, err := d.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list backups with watch: %w", err)
+	}
+	defer rows.Close()
+
+	var items []BackupSummary
+	for rows.Next() {
+		var item BackupSummary
+		if err := rows.Scan(
+			&item.ID, &item.WatchItemID, &item.EndpointID, &item.WatchPath, &item.TargetPath,
+			&item.StartedAt, &item.CompletedAt, &item.Status, &item.TotalFiles, &item.TotalBytes, &item.Error,
+		); err != nil {
+			return nil, fmt.Errorf("scan backup summary: %w", err)
 		}
 		items = append(items, item)
 	}

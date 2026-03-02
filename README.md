@@ -43,6 +43,31 @@ go run ./cmd/server -config ./config.json
 
 Dashboard: `http://127.0.0.1:8080`
 
+## Frontend Development
+The UI is built with React + Vite in [`frontend/`](frontend/).
+
+### Install dependencies
+```bash
+cd frontend
+npm install
+```
+
+### Run dev server (frontend only)
+```bash
+cd frontend
+npm run dev
+```
+
+### Build and embed into the Go server
+```bash
+cd frontend
+npm run build
+cd ..
+cp -r frontend/dist/* web/
+```
+
+The Go server embeds assets from [`web/`](web/), so rebuilding the UI requires copying the Vite build output into that folder.
+
 ## API Summary
 - `GET /api/status`
 - `GET/POST/PUT/DELETE /api/endpoints`
@@ -62,7 +87,8 @@ Dashboard: `http://127.0.0.1:8080`
 - [`internal/storage/s3.go`](internal/storage/s3.go)
 - [`internal/storage/object_key.go`](internal/storage/object_key.go)
 - [`internal/api/server.go`](internal/api/server.go)
-- [`web/index.html`](web/index.html)
+- [`frontend/`](frontend/)
+- [`web/`](web/)
 - [`web/embed.go`](web/embed.go)
 
 ## Validation Steps

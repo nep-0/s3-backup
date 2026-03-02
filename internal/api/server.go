@@ -207,7 +207,7 @@ func (s *Server) handleBackupsList(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	items, err := s.DB.ListBackups(r.Context(), 50)
+	items, err := s.DB.ListBackupsWithWatch(r.Context(), 50)
 	if err != nil {
 		s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

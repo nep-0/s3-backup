@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"flag"
+	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"s3-backup/internal/api"
@@ -57,7 +59,36 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/", http.FileServer(http.FS(web.Assets)))
+
+	// Single Page App handler
+	subFS, err := fs.Sub(web.Assets, ".")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fsHandler := http.FileServer(http.FS(subFS))
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path[1:]
+		if path == "" {
+			path = "index.html"
+		}
+
+		f, err := subFS.Open(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				// File not found, serve index.html for SPA
+				r.URL.Path = "/"
+				fsHandler.ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		f.Close()
+		fsHandler.ServeHTTP(w, r)
+	})
+
 	mux.Handle("/api/", apiServer.Routes())
 
 	log.Printf("dashboard on http://%s", cfg.App.DashboardBind)

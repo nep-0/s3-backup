@@ -9,13 +9,30 @@
 - Web dashboard to manage watch items, endpoints, and trigger backups/recovery
 
 ## Configuration
-Default config file: [`config.json`](config.json)
+Default config file: OS-specific, stored under the user's config directory (e.g. `~/.config/s3-backup/config.json` on Linux).
+
+The server supports `--config/-c` to override the config path. If no config path is supplied and the default config file is missing, it will be created from the embedded default config template.
+
+## Install and autostart
+You can install the binary into an OS-appropriate location and enable autostart:
+
+```bash
+./s3-backup --install
+```
+
+Uninstall and disable autostart:
+
+```bash
+./s3-backup --uninstall
+```
+
+Install/uninstall exits after completion without starting the server. It registers autostart using `github.com/emersion/go-autostart`.
 
 ```json
 {
   "app": {
-    "data_dir": "./data",
-    "db_path": "./data/s3-backup.sqlite",
+    "data_dir": "data",
+    "db_path": "data/s3-backup.sqlite",
     "dashboard_bind": "127.0.0.1:8080"
   },
   "retention": {
@@ -23,7 +40,7 @@ Default config file: [`config.json`](config.json)
     "max_age_days": 30
   },
   "recovery": {
-    "restore_root": "./restore",
+    "restore_root": "restore",
     "overwrite": false
   },
   "s3_defaults": {
@@ -38,7 +55,7 @@ Default config file: [`config.json`](config.json)
 
 ## Run
 ```bash
-go run ./cmd/server -config ./config.json
+go run ./cmd/server --config ./config.json
 ```
 
 Dashboard: `http://127.0.0.1:8080`

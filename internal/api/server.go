@@ -44,10 +44,14 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	watchItems, _ := s.DB.ListWatchItems(r.Context())
 	endpoints, _ := s.DB.ListEndpoints(r.Context())
 	backups, _ := s.DB.ListBackups(r.Context(), 10)
+	storageTotals, _ := s.DB.GetStorageTotals(r.Context())
+	storageTrend, _ := s.DB.ListStorageTrend(r.Context(), 20)
 	payload := map[string]any{
-		"watch_items": watchItems,
-		"endpoints":   endpoints,
-		"backups":     backups,
+		"watch_items":    watchItems,
+		"endpoints":      endpoints,
+		"backups":        backups,
+		"storage_totals": storageTotals,
+		"storage_trend":  storageTrend,
 	}
 	s.writeJSON(w, http.StatusOK, payload)
 }

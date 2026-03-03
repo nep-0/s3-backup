@@ -54,6 +54,18 @@ type BackupSummary struct {
 	Error       string `json:"error"`
 }
 
+type StorageTotals struct {
+	OriginalBytes   int64 `json:"original_bytes"`
+	CompressedBytes int64 `json:"compressed_bytes"`
+}
+
+type StorageTrendPoint struct {
+	BackupID        int64  `json:"backup_id"`
+	Timestamp       string `json:"timestamp"`
+	OriginalBytes   int64  `json:"original_bytes"`
+	CompressedBytes int64  `json:"compressed_bytes"`
+}
+
 type BackupFile struct {
 	ID        int64  `json:"id"`
 	BackupID  int64  `json:"backup_id"`
@@ -281,6 +293,50 @@ func (d *DB) ListBackupFiles(ctx context.Context, backupID int64) ([]BackupFile,
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (d *DB) GetStorageTotals(ctx context.Context) (StorageTotals, error) {
+	var totals StorageTotals
+	row := d.QueryRowContext(ctx, `SELECT COALESCE(SUM(size), 0), COALESCE(SUM(zstd_size), 0) FROM backup_files`)
+	if err := row.Scan(&totals.OriginalBytes, &totals.CompressedBytes); err != nil {
+		return totals, fmt.Errorf("storage totals: %w", err)
+	}
+	return totals, nil
+}
+
+func (d *DB) ListStorageTrend(ctx context.Context, limit int) ([]StorageTrendPoint, error) {
+	query := `
+		SELECT b.id, b.completed_at, b.started_at,
+			COALESCE(SUM(f.size), 0), COALESCE(SUM(f.zstd_size), 0)
+		FROM backups b
+		LEFT JOIN backup_files f ON f.backup_id = b.id
+		GROUP BY b.id
+		ORDER BY b.id DESC`
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d", limit)
+	}
+	rows, err := d.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list storage trend: %w", err)
+	}
+	defer rows.Close()
+
+	var points []StorageTrendPoint
+	for rows.Next() {
+		var point StorageTrendPoint
+		var completedAt string
+		var startedAt string
+		if err := rows.Scan(&point.BackupID, &completedAt, &startedAt, &point.OriginalBytes, &point.CompressedBytes); err != nil {
+			return nil, fmt.Errorf("scan storage trend: %w", err)
+		}
+		if completedAt != "" {
+			point.Timestamp = completedAt
+		} else {
+			point.Timestamp = startedAt
+		}
+		points = append(points, point)
+	}
+	return points, rows.Err()
 }
 
 func (d *DB) CreateBackupFile(ctx context.Context, item BackupFile) (int64, error) {

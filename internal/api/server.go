@@ -27,6 +27,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/backups/list", s.handleBackupsList)
 	mux.HandleFunc("/api/backups/detail", s.handleBackupDetail)
 	mux.HandleFunc("/api/recovery/start", s.handleRecoveryStart)
+	mux.HandleFunc("/api/tasks", s.handleTasks)
 	return mux
 }
 
@@ -52,6 +53,17 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"backups":        backups,
 		"storage_totals": storageTotals,
 		"storage_trend":  storageTrend,
+	}
+	s.writeJSON(w, http.StatusOK, payload)
+}
+
+func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	payload := map[string]any{
+		"task": s.Backup.GetProgress(),
 	}
 	s.writeJSON(w, http.StatusOK, payload)
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/klauspost/compress/zstd"
@@ -23,6 +24,8 @@ type Manager struct {
 	Retention   RetentionPolicy
 	RecoveryDir string
 	Overwrite   bool
+	mu          sync.Mutex
+	progress    *TaskProgress
 }
 
 type RetentionPolicy struct {
@@ -48,6 +51,13 @@ func (m *Manager) BackupWatchItem(ctx context.Context, watch db.WatchItem, endpo
 	var totalBytes int64
 	status := "success"
 	var lastErr error
+
+	m.setProgress(&TaskProgress{
+		Type:      "backup",
+		Stage:     "scanning",
+		BackupID:  backupID,
+		UpdatedAt: db.NowUTC(),
+	})
 
 	rootInfo, statErr := os.Stat(watch.Path)
 	if statErr != nil {
@@ -84,6 +94,8 @@ func (m *Manager) BackupWatchItem(ctx context.Context, watch db.WatchItem, endpo
 		status = "failed"
 		lastErr = err
 	}
+
+	m.clearProgress()
 
 	if updateErr := m.DB.UpdateBackup(ctx, db.Backup{
 		ID:          backupID,
@@ -161,28 +173,70 @@ func (m *Manager) RecoverBackup(ctx context.Context, backupID int64) error {
 	if err != nil {
 		return err
 	}
+	var totalBytes int64
+	for _, f := range files {
+		totalBytes += f.ZstdSize
+	}
+
+	m.setProgress(&TaskProgress{
+		Type:       "recovery",
+		Stage:      "downloading",
+		BackupID:   backupID,
+		TotalFiles: int64(len(files)),
+		BytesTotal: totalBytes,
+		UpdatedAt:  db.NowUTC(),
+	})
+
 	for _, file := range files {
+		m.updateProgress(func(p *TaskProgress) {
+			p.Stage = "downloading"
+			p.CurrentFile = file.Path
+			p.UpdatedAt = db.NowUTC()
+		})
 		data, err := m.S3Client.GetObject(ctx, file.ObjectKey)
 		if err != nil {
+			m.clearProgress()
 			return err
 		}
+		m.updateProgress(func(p *TaskProgress) {
+			p.Stage = "decompressing"
+			p.UpdatedAt = db.NowUTC()
+		})
 		decoded, err := decompressZstd(data)
 		if err != nil {
+			m.clearProgress()
 			return err
 		}
 		target := filepath.Join(m.RecoveryDir, filepath.FromSlash(file.Path))
 		if !m.Overwrite {
 			if _, err := os.Stat(target); err == nil {
+				m.updateProgress(func(p *TaskProgress) {
+					p.CompletedFiles += 1
+					p.BytesDone += file.ZstdSize
+					p.UpdatedAt = db.NowUTC()
+				})
 				continue
 			}
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			m.clearProgress()
 			return err
 		}
+		m.updateProgress(func(p *TaskProgress) {
+			p.Stage = "writing"
+			p.UpdatedAt = db.NowUTC()
+		})
 		if err := os.WriteFile(target, decoded, 0o644); err != nil {
+			m.clearProgress()
 			return err
 		}
+		m.updateProgress(func(p *TaskProgress) {
+			p.CompletedFiles += 1
+			p.BytesDone += file.ZstdSize
+			p.UpdatedAt = db.NowUTC()
+		})
 	}
+	m.clearProgress()
 	return nil
 }
 
@@ -217,11 +271,22 @@ func shouldExclude(rel string, excludes []string) bool {
 }
 
 func (m *Manager) backupFile(ctx context.Context, backupID int64, watch db.WatchItem, relPath string, fullPath string, info os.FileInfo, totalFiles *int64, totalBytes *int64) error {
+	m.updateProgress(func(p *TaskProgress) {
+		p.Stage = "reading"
+		p.CurrentFile = relPath
+		p.TotalFiles += 1
+		p.BytesTotal += info.Size()
+		p.UpdatedAt = db.NowUTC()
+	})
 	data, err := os.ReadFile(fullPath)
 	if err != nil {
 		return err
 	}
 	hash := sha256.Sum256(data)
+	m.updateProgress(func(p *TaskProgress) {
+		p.Stage = "compressing"
+		p.UpdatedAt = db.NowUTC()
+	})
 	compressed, err := compressZstd(data)
 	if err != nil {
 		return err
@@ -235,6 +300,10 @@ func (m *Manager) backupFile(ctx context.Context, backupID int64, watch db.Watch
 		"zstd_size":     fmt.Sprintf("%d", len(compressed)),
 		"watch_item_id": fmt.Sprintf("%d", watch.ID),
 	}
+	m.updateProgress(func(p *TaskProgress) {
+		p.Stage = "uploading"
+		p.UpdatedAt = db.NowUTC()
+	})
 	if err := m.S3Client.PutObject(ctx, key, compressed, metadata); err != nil {
 		return err
 	}
@@ -252,6 +321,11 @@ func (m *Manager) backupFile(ctx context.Context, backupID int64, watch db.Watch
 	}
 	*totalFiles += 1
 	*totalBytes += info.Size()
+	m.updateProgress(func(p *TaskProgress) {
+		p.CompletedFiles += 1
+		p.BytesDone += info.Size()
+		p.UpdatedAt = db.NowUTC()
+	})
 	return nil
 }
 

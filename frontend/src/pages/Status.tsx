@@ -1,5 +1,15 @@
 import { useState, useEffect } from 'react';
-import { Server, Eye, Database, BarChart3 } from 'lucide-react';
+import { Server, Eye, Database, BarChart3, Activity } from 'lucide-react';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+  Legend,
+} from 'recharts';
 
 interface StorageTotals {
   original_bytes: number;
@@ -13,6 +23,18 @@ interface StorageTrendPoint {
   compressed_bytes: number;
 }
 
+interface TaskProgress {
+  type: string;
+  stage: string;
+  backup_id: number;
+  current_file: string;
+  total_files: number;
+  completed_files: number;
+  bytes_total: number;
+  bytes_done: number;
+  updated_at: string;
+}
+
 interface StatusData {
   endpoints?: any[];
   watch_items?: any[];
@@ -23,6 +45,7 @@ interface StatusData {
 
 export default function Status({ refreshKey, setSystemOnline }: { refreshKey: number, setSystemOnline: (status: boolean) => void }) {
   const [status, setStatus] = useState<StatusData>({});
+  const [task, setTask] = useState<TaskProgress | null>(null);
 
   useEffect(() => {
     fetch('/api/status')
@@ -40,6 +63,30 @@ export default function Status({ refreshKey, setSystemOnline }: { refreshKey: nu
       });
   }, [refreshKey, setSystemOnline]);
 
+  useEffect(() => {
+    let active = true;
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/tasks');
+        if (!res.ok) throw new Error('task error');
+        const data = await res.json();
+        if (active) {
+          setTask(data.task || null);
+        }
+      } catch (err) {
+        if (active) {
+          setTask(null);
+        }
+      }
+    };
+    poll();
+    const id = setInterval(poll, 2000);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, []);
+
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 B';
     const k = 1024;
@@ -49,31 +96,53 @@ export default function Status({ refreshKey, setSystemOnline }: { refreshKey: nu
   };
 
   const trend = (status.storage_trend || []).slice().reverse();
-  const maxOriginal = Math.max(1, ...trend.map((t) => t.original_bytes || 0));
-  const maxCompressed = Math.max(1, ...trend.map((t) => t.compressed_bytes || 0));
-  const maxValue = Math.max(maxOriginal, maxCompressed, 1);
-  const chartHeight = 180;
-  const chartWidth = 600;
-  const padding = 30;
+  const chartData = trend.map((point, index) => ({
+    name: `${index + 1}`,
+    original: point.original_bytes || 0,
+    compressed: point.compressed_bytes || 0,
+  }));
 
-  const toX = (index: number) => {
-    if (trend.length <= 1) return padding;
-    return padding + (index / (trend.length - 1)) * (chartWidth - padding * 2);
-  };
-
-  const toY = (value: number) => {
-    const ratio = value / maxValue;
-    return chartHeight - padding - ratio * (chartHeight - padding * 2);
-  };
-
-  const buildPath = (key: 'original_bytes' | 'compressed_bytes') => {
-    return trend
-      .map((point, index) => `${index === 0 ? 'M' : 'L'} ${toX(index)} ${toY(point[key] || 0)}`)
-      .join(' ');
-  };
+  const progressPercent = task && task.bytes_total > 0
+    ? Math.min(100, Math.round((task.bytes_done / task.bytes_total) * 100))
+    : task && task.total_files > 0
+      ? Math.min(100, Math.round((task.completed_files / task.total_files) * 100))
+      : 0;
 
   return (
     <div className="space-y-6">
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Activity className="w-5 h-5 text-blue-500" />
+            <h3 className="font-semibold">Ongoing Task</h3>
+          </div>
+          {task ? (
+            <span className="text-xs text-gray-500">{task.type} • {task.stage}</span>
+          ) : (
+            <span className="text-xs text-gray-500">Idle</span>
+          )}
+        </div>
+        <div className="p-6 space-y-4">
+          {task ? (
+            <>
+              <div className="flex items-center justify-between text-sm text-gray-600">
+                <span className="font-medium">{task.current_file || 'Working...'}</span>
+                <span>{task.completed_files}/{task.total_files} files</span>
+              </div>
+              <div className="w-full bg-gray-100 rounded-full h-2">
+                <div className="bg-blue-600 h-2 rounded-full transition-all" style={{ width: `${progressPercent}%` }}></div>
+              </div>
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>{progressPercent}% complete</span>
+                <span>{formatBytes(task.bytes_done)} / {formatBytes(task.bytes_total)}</span>
+              </div>
+            </>
+          ) : (
+            <div className="text-sm text-gray-500">No active upload/download/compress/decompress tasks.</div>
+          )}
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
           <div className="flex items-center justify-between mb-4">
@@ -135,24 +204,21 @@ export default function Status({ refreshKey, setSystemOnline }: { refreshKey: nu
           <span className="text-xs text-gray-500">Last {trend.length} backups</span>
         </div>
         <div className="p-6">
-          {trend.length === 0 ? (
+          {chartData.length === 0 ? (
             <div className="text-sm text-gray-500">No backup data available yet.</div>
           ) : (
-            <div className="w-full overflow-x-auto">
-              <svg width={chartWidth} height={chartHeight} className="w-full max-w-full">
-                <path d={buildPath('original_bytes')} fill="none" stroke="#6366f1" strokeWidth="2" />
-                <path d={buildPath('compressed_bytes')} fill="none" stroke="#14b8a6" strokeWidth="2" />
-              </svg>
-              <div className="flex flex-wrap gap-4 text-xs text-gray-500 mt-4">
-                <div className="flex items-center gap-2">
-                  <span className="inline-block w-3 h-3 rounded-full bg-indigo-500"></span>
-                  Original size
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="inline-block w-3 h-3 rounded-full bg-teal-500"></span>
-                  Compressed size
-                </div>
-              </div>
+            <div className="w-full h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                  <YAxis tickFormatter={(value) => formatBytes(value)} tick={{ fontSize: 12 }} width={80} />
+                  <Tooltip formatter={(value) => formatBytes(Number(value || 0))} />
+                  <Legend />
+                  <Line type="monotone" dataKey="original" stroke="#6366f1" name="Original" dot={false} />
+                  <Line type="monotone" dataKey="compressed" stroke="#14b8a6" name="Compressed" dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
             </div>
           )}
         </div>
